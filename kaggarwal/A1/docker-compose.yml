@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  container2:
+    image: karanagg262/assignment1:container2
+    container_name: container2
+    ports:
+      - "5001:5001"
+    volumes:
+      - .:/inputfile
+
+  container1:
+    image: karanagg262/assignment1:container1
+    container_name: container1
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/inputfile

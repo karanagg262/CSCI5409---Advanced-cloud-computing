@@ -1,0 +1,658 @@
+Resources:
+#Create SNS service for emailing service
+  createsns:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: emailservice
+      FifoTopic: false
+      TopicName: emailservice
+      Subscription:
+        - Protocol: email
+          Endpoint: kr284229@dal.ca
+
+# To create Lambda Function Create Tenant
+  createtenant:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: 
+        S3Bucket: createtenant
+        S3Key: Archive.zip
+      Environment:
+        Variables:
+          SNSTopicArn: !Ref createsns
+      Role: arn:aws:iam::717610573682:role/LabRole
+      FunctionName: createtenant
+      Handler: index.handler
+      Runtime: nodejs18.x
+    DependsOn:
+      - tenants
+
+  # To create Lambda Function Fetch Tenant
+  fetchtenant:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Environment:
+        Variables:
+          SNSTopicArn: !Ref createsns
+      Code: 
+        S3Bucket: fetchtenant
+        S3Key: Archive.zip
+      Role: arn:aws:iam::717610573682:role/LabRole
+      FunctionName: fetchtenant
+      Handler: index.handler
+      Runtime: nodejs18.x
+    DependsOn:
+      - tenants
+  
+  # To create Lambda Function Create Service
+  createservice:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: 
+        S3Bucket: createservice
+        S3Key: Archive.zip
+      Role: arn:aws:iam::717610573682:role/LabRole
+      FunctionName: createservice
+      Handler: index.handler
+      Runtime: nodejs18.x
+    DependsOn:
+      - services
+
+  # To create Lambda Function Fetch Services
+  fetchservice:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: 
+        S3Bucket: fetchservice
+        S3Key: Archive.zip
+      Role: arn:aws:iam::717610573682:role/LabRole
+      FunctionName: fetchservice
+      Handler: index.handler
+      Runtime: nodejs18.x
+    DependsOn:
+      - services
+
+  #DynamoDB for tenants
+  tenants:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "tenantid"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "tenantid"
+          KeyType: "HASH"
+      TableName: "tenantDetails"
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+      Tags:
+        - Key: "backup"
+          Value: "dynamo"
+
+  #DynamoDB for Services
+  services:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "unitnumber"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "unitnumber"
+          KeyType: "HASH"
+      TableName: "servicedetails"
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+      Tags:
+        - Key: "backup"
+          Value: "dynamo"
+
+  #API Service Gateway Global
+  apartmentservicegateway:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: "apartmentservicegateway"
+  
+  # API Gateway Global to handle 4xx
+  tenantresponse4xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref apartmentservicegateway
+      ResponseType: DEFAULT_4XX
+      StatusCode: '404'
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+
+# API Gateway Global to handle 5xx
+  tenantresponse5xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref apartmentservicegateway
+      ResponseType: DEFAULT_5XX
+      StatusCode: '500'
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+
+
+  #API Service Gateway Resource for create tenants
+  tenantdetails:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt 
+        - apartmentservicegateway
+        - RootResourceId
+      PathPart: "tenantdetails"
+      RestApiId: !Ref apartmentservicegateway
+
+  #API Service Gateway Method for create tenants
+  tenantdetailsmethod:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref tenantdetails
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${createtenant.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+# API Service Gateway Method for create tenants OPTIONS
+  tenantdetailsmethodOPTIONS:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref tenantdetails
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${createtenant.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Resource to fetch tenants
+  tenantfetch:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt 
+        - apartmentservicegateway
+        - RootResourceId
+      PathPart: "tenantfetch"
+      RestApiId: !Ref apartmentservicegateway
+
+#API Service Gateway Method to fetch tenants
+  tenantfetchmethod:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref tenantfetch
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${fetchtenant.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Method to fetch tenants OPTIONS
+  tenantfetchmethodoptions:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref tenantfetch
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${fetchtenant.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Resource for create service
+  servicedetails:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt 
+        - apartmentservicegateway
+        - RootResourceId
+      PathPart: "servicedetails"
+      RestApiId: !Ref apartmentservicegateway  
+
+#API Service Gateway Method for create service
+  servicedetailsmethod:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref servicedetails
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${createservice.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Method for create service OPTIONS
+  servicedetailsmethodOPTIONS:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref servicedetails
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${createservice.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Resource to fetch service
+  servicefetch:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt 
+        - apartmentservicegateway
+        - RootResourceId
+      PathPart: "servicefetch"
+      RestApiId: !Ref apartmentservicegateway
+
+#API Service Gateway Method to fetch service
+  servicefetchmethod:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref servicefetch
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${fetchservice.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+#API Service Gateway Method to fetch service OPTIONS
+  servicefetchmethodOPTIONS:
+    Type : "AWS::ApiGateway::Method"
+    Properties :
+      RestApiId : !Ref apartmentservicegateway
+      ResourceId: !Ref servicefetch
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: "AWS"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+          - StatusCode: 400
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+          - StatusCode: 500
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${fetchservice.Arn}/invocations"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+        - StatusCode: 400
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 500
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+        - StatusCode: 404
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+
+# To deploy our Gateway
+  gatewaydeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties: 
+      RestApiId: !Ref apartmentservicegateway
+      StageName: testing
+    DependsOn:
+      - tenantdetailsmethod
+      - tenantfetchmethod
+      - servicedetailsmethod
+      - servicefetchmethod
+      - tenantresponse4xx
+      - tenantresponse5xx
+      - tenantdetailsmethodOPTIONS
+      - tenantfetchmethodoptions
+      - servicedetailsmethodOPTIONS
+      - servicefetchmethodOPTIONS
+
+# Provide gateway lambda permission for createtenant
+  createtenantgatewaypermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt createtenant.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - gatewaydeployment
+
+# Provide gateway lambda permission for fetchtenant
+  fetchtenantgatewaypermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt fetchtenant.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - gatewaydeployment
+
+# Provide gateway lambda permission for createservice
+  createservicegatewaypermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt createservice.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - gatewaydeployment
+
+# Provide gateway lambda permission for fetchservice
+  fetcservicegatewaypermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt fetchservice.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+      - gatewaydeployment
+
+# To create a key pair for ec2
+  ec2keypair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: keypair
+      KeyType: rsa
+
+#To create a security group for ec2
+  securitygroupec2:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: "security group for ec2"
+      GroupName: securitygroup
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+#To create a ec2 instance
+  apartmentec2:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - apartmentservicegateway
+    Properties: 
+      ImageId: ami-06e46074ae430fba6
+      InstanceType: t2.micro
+      KeyName: !Ref ec2keypair
+      SecurityGroups: 
+        - !Ref securitygroupec2
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -xe
+          cd /home/ec2-user
+          sudo yum install -y git
+          sudo yum install -y nginx
+          sudo yum install -y jq
+          sudo yum install -y aws-cli
+          git clone https://kaggarwal:glpat-TasVZxEjBJ23-nxknFn3@git.cs.dal.ca/courses/2023-winter/csci4145-5409/kaggarwal.git
+          sudo sed -i '/^[[:blank:]]*root[[:blank:]]*\/usr\/share\/nginx\/html;/s//    location \/ {\n        root \/home\/ec2-user\/kaggarwal\/frontend\/dist\/ecoshop;\n    }/' /etc/nginx/nginx.conf
+          sudo chmod 755 /home/ec2-user/
+          aws configure set aws_access_key_id ASIA2OFHML5ZJ47OGFW6
+          aws configure set aws_secret_access_key gfWHDZdSjJOK4BEL9gOar0Sqqa9H6HN5anCTHvMC
+          aws configure set aws_session_token FwoGZXIvYXdzELr//////////wEaDIXEPq2qI9rd+yo+CSLHAZxNYPgiF1l7PSm38yznYKVwXfVPlJM1RCJSGNTmR3nZ5aOwfzN8/eOdb7WUNgm+l8UEOtTXjfbExsB/o/CBTz5KuZrfKF6tj6jLaoNT8g44TcQZoS6LAJvaDuTXCX0IZUNmhH+5leO9Ncmz9S9IdEDuoSvZZ9fzMJimSkol5cLFUynY2o2FIF5hVInWsZHNn5irkMvg9anCK+sNjnTU5gAfkTWwRDx6D6BpPjWlc7wXpHQuvRFESieCS9AAC2o9KiWOdPVz05QomfrQoQYyLYmGin8ekm8xORrqIpwUBRfC5EfRwYqxPebY29beAVnmmPjPxMzH9U78mNSRUA==
+          gatewayid=$(aws apigateway get-rest-apis | jq -r '.items[] | select(.name == "apartmentservicegateway") | .id')
+          sudo sed -i "s/PRODLINK/$gatewayid/g" kaggarwal/frontend/dist/ecoshop/assets/environment
+          sudo systemctl start nginx
+
+#Backup Vault
+  awsbackupvault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: myvault
+
+#AWS Backup plan
+  awsbackup:
+    Type: AWS::Backup::BackupPlan
+    Properties: 
+      BackupPlan: 
+        BackupPlanName: dynamodbbackup
+        BackupPlanRule: 
+          - RuleName: backuprule
+            TargetBackupVault: !Ref awsbackupvault
+            ScheduleExpression: cron(0 11 * * ? *)
+    
+# Take backup from dynamodb
+  backupdynamodb:
+    Type: "AWS::Backup::BackupSelection"
+    Properties: 
+      BackupPlanId: !Ref awsbackup
+      BackupSelection:
+        SelectionName: dynamotags
+        IamRoleArn: arn:aws:iam::717610573682:role/LabRole
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: "backup"
+            ConditionValue: "dynamo"
